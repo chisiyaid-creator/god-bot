@@ -549,3 +549,8 @@ process.exit = (code) => {
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 log(`=== god bot v3 starting | ${HOST}:${PORT} | base: ${BASE_X},${BASE_Y},${BASE_Z} ===`);
 createBot();
+const http = require('http');
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('God is eternal');
+}).listen(process.env.PORT || 3000);
