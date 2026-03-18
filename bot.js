@@ -1,4 +1,4 @@
-om direction instead
+const mineflayer = require('mineflayer');
       await bot.look((Math.random() * Math.PI * 2) - Math.PI, 0, false);
       await delay(randInt(200, 400));
       // If still blocked, skip walking this tick
