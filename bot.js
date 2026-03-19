@@ -16,10 +16,13 @@ const BASE_Z = parseInt(process.env.BASE_Z || "-1339", 10);
 const DEFER_TO_24H_MS = 8000;
 const STAGES = ["dawn", "morning", "afternoon", "dusk", "night", "midnight"];
 
-// ─── OpenAI ───────────────────────────────────────────────────────────────────
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "",
-});
+// ─── Groq AI (free tier — created lazily so env var is always fresh) ─────────
+function getOpenAI() {
+  return new OpenAI({
+    apiKey: process.env.GROQ_API_KEY || "",
+    baseURL: "https://api.groq.com/openai/v1",
+  });
+}
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let bot = null;
@@ -124,6 +127,9 @@ function createBot() {
     bot.on("playerLeft", onPlayerLeft);
     bot.on("messagestr", onRawMessage);
 
+    // Announce arrival
+    setTimeout(() => safeSay("God has arrived. All is well."), 3000);
+
     loopWalk();
     loopLookAround();
     loopAntiAfk();
@@ -131,6 +137,7 @@ function createBot() {
     loopNightBoost();
     loopStageProgress();
     loopCleanExpiredTp();
+    loopDivineMessages();
   });
 
   bot.on("kicked", onKicked);
@@ -349,6 +356,38 @@ function loopCleanExpiredTp() {
   loopHandles.push(h);
 }
 
+// ─── Periodic divine messages ─────────────────────────────────────────────────
+const DIVINE_MESSAGES = [
+  "I watch over all of you. Play well.",
+  "Remember: kindness is strength.",
+  "The server is blessed today.",
+  "Build, explore, survive. I am with you.",
+  "Need help? Type: god <your question>",
+  "Every block placed is a prayer answered.",
+  "The strong protect the weak. Remember that.",
+  "I see all. I judge fairly.",
+  "Peace among players pleases me greatly.",
+  "Type 'help' to see what I can do for you.",
+];
+
+function loopDivineMessages() {
+  function tick() {
+    try {
+      const players = bot && bot.players
+        ? Object.keys(bot.players).filter(n => n !== BOT_NAME)
+        : [];
+      if (players.length > 0) {
+        const msg = DIVINE_MESSAGES[Math.floor(Math.random() * DIVINE_MESSAGES.length)];
+        safeSay(`[God] ${msg}`);
+      }
+    } catch (_) {}
+    const h = setTimeout(tick, randInt(25 * 60000, 45 * 60000));
+    loopHandles.push(h);
+  }
+  const h = setTimeout(tick, randInt(10 * 60000, 20 * 60000));
+  loopHandles.push(h);
+}
+
 // ─── Raw message parser ───────────────────────────────────────────────────────
 function onRawMessage(jsonMsg) {
   const text = jsonMsg.toString();
@@ -415,14 +454,26 @@ async function onChat(username, message) {
   if (username === "24hour") lastSeen24hour = Date.now();
 
   if (
-    lower === "god" ||
-    lower.startsWith("god ") ||
-    lower.startsWith("god,") ||
-    lower.startsWith("god!")
+    lower === "god" || lower.startsWith("god ") ||
+    lower.startsWith("god,") || lower.startsWith("god!") ||
+    lower === "pray" || lower.startsWith("pray ") ||
+    lower.startsWith("pray,") || lower.startsWith("pray!")
   ) {
     const question =
-      msg.replace(/^god[\s,!]*/i, "").trim() || "I call upon thee";
+      msg.replace(/^(god|pray)[\s,!]*/i, "").trim() || "I call upon thee";
     handleGodChat(username, question);
+    return;
+  }
+
+  // React to devil mentions (20% chance)
+  if (lower.includes("devil") && Math.random() < 0.20) {
+    const devilReactions = [
+      "Do not speak that name here. You are under my protection.",
+      "The Devil lurks in darkness. My light keeps you safe.",
+      "Fear not. As long as I watch, no darkness shall touch you.",
+      "I am aware of the Devil's presence. Stay close to the light.",
+    ];
+    setTimeout(() => safeSay(devilReactions[Math.floor(Math.random() * devilReactions.length)]), 2000);
     return;
   }
 
@@ -465,7 +516,7 @@ const GOD_FALLBACKS = [
 ];
 
 async function handleGodChat(username, question) {
-  const apiKey = process.env.OPENAI_API_KEY || "";
+  const apiKey = process.env.GROQ_API_KEY || "";
   if (!apiKey) {
     const fallback = GOD_FALLBACKS[Math.floor(Math.random() * GOD_FALLBACKS.length)];
     safeSay(`[God] ${fallback}`);
@@ -473,8 +524,8 @@ async function handleGodChat(username, question) {
     return;
   }
   try {
-    const res = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+    const res = await getOpenAI().chat.completions.create({
+      model: "llama-3.1-8b-instant",
       max_tokens: 80,
       messages: [
         {
@@ -637,17 +688,30 @@ async function walkToPlayer(username) {
 }
 
 // ─── Player join / leave ──────────────────────────────────────────────────────
+const WELCOME_MESSAGES = [
+  "Welcome, {p}. You are safe here.",
+  "Ah, {p} has arrived. All are welcome in my realm.",
+  "{p} joins us. May your journey be blessed.",
+  "God sees you, {p}. Play with honour.",
+];
+
 function onPlayerJoined(player) {
   log(`+ ${player.username} joined`);
-  if (player.username !== BOT_NAME && player.username !== "24hour") {
-    if (Math.random() < 0.05 && !giftedPlayers.has(player.username)) {
-      setTimeout(() => {
-        safeSay(
-          `I have gazed upon many souls today. ${player.username}... you have been found worthy.`,
-        );
-        setTimeout(() => grantGodGift(player.username), 4000);
-      }, 15000);
-    }
+  if (player.username === BOT_NAME || player.username === "24hour") return;
+
+  // Welcome message (40% chance)
+  if (Math.random() < 0.4) {
+    const w = WELCOME_MESSAGES[Math.floor(Math.random() * WELCOME_MESSAGES.length)]
+      .replace("{p}", player.username);
+    setTimeout(() => safeSay(w), 3000);
+  }
+
+  // Rare gift (5% chance)
+  if (Math.random() < 0.05 && !giftedPlayers.has(player.username)) {
+    setTimeout(() => {
+      safeSay(`I have gazed upon many souls today. ${player.username}... you have been found worthy.`);
+      setTimeout(() => grantGodGift(player.username), 4000);
+    }, 15000);
   }
 }
 
@@ -722,9 +786,7 @@ function adaptBehavior() {
 
 // ─── Help ─────────────────────────────────────────────────────────────────────
 function showHelp() {
-  safeSay(
-    "tp <name> | tp base | a/d (accept/decline) | x2 (starter pack) | god <question>",
-  );
+  safeSay("god/pray <question> | tp <name> | tp base | a/accept | d/decline | x2");
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
