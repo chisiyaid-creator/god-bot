@@ -34,7 +34,6 @@ let stageIndex = 0;
 let movementProfile = "explorer";
 let lastSeen24hour = 0;
 let nightBoosted = false;
-
 const tpRequests = new Map();
 const pendingTpHandoffs = new Map();
 const killLog = new Map();
@@ -79,10 +78,19 @@ function scheduleReconnect(reason) {
   }, wait);
 }
 
+// ─── Destroy old bot instance ─────────────────────────────────────────────────
+function destroyBot() {
+  if (!bot) return;
+  try { bot.removeAllListeners(); } catch (_) {}
+  try { bot.end(); } catch (_) {}
+  bot = null;
+}
+
 // ─── Create bot ───────────────────────────────────────────────────────────────
 function createBot() {
   if (isConnecting) return;
   isConnecting = true;
+  destroyBot();
   log(`Connecting to ${HOST}:${MC_PORT}...`);
 
   bot = mineflayer.createBot({
@@ -448,29 +456,44 @@ async function onChat(username, message) {
 }
 
 // ─── God AI chat ──────────────────────────────────────────────────────────────
+const GOD_FALLBACKS = [
+  "I hear you. All things have their time.",
+  "Good question! Seek and you shall find.",
+  "The answer lies within you.",
+  "Patience. The answer will come.",
+  "I am always watching over you.",
+];
+
 async function handleGodChat(username, question) {
+  const apiKey = process.env.OPENAI_API_KEY || "";
+  if (!apiKey) {
+    const fallback = GOD_FALLBACKS[Math.floor(Math.random() * GOD_FALLBACKS.length)];
+    safeSay(`[God] ${fallback}`);
+    log("No OPENAI_API_KEY set — used fallback reply");
+    return;
+  }
   try {
     const res = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
-      max_tokens: 60,
+      max_tokens: 80,
       messages: [
         {
           role: "system",
           content:
             "You are God, a helpful and friendly AI assistant on a Minecraft server. " +
             "You are knowledgeable, kind, and respond like ChatGPT — clear, conversational, and helpful. " +
-            "Keep replies short (max 200 characters) since this is Minecraft chat. " +
+            "Keep replies under 180 characters since this is Minecraft chat. " +
             "Be warm and approachable. You can answer any question the player asks.",
         },
         { role: "user", content: `${username} asks: ${question}` },
       ],
     });
-    const reply =
-      res.choices[0]?.message?.content?.trim() || "The cosmos is silent.";
+    const reply = res.choices[0]?.message?.content?.trim() || GOD_FALLBACKS[0];
     safeSay(`[God] ${reply}`);
   } catch (err) {
-    safeSay(`[God] The stars have no answer for you today, ${username}.`);
-    log(`OpenAI err: ${err.message}`);
+    log(`OpenAI err: ${err.message} | status: ${err.status || 'n/a'} | code: ${err.code || 'n/a'}`);
+    const fallback = GOD_FALLBACKS[Math.floor(Math.random() * GOD_FALLBACKS.length)];
+    safeSay(`[God] ${fallback}`);
   }
 }
 
@@ -639,10 +662,21 @@ function onPlayerLeft(player) {
 function onKicked(reason) {
   const r = typeof reason === "string" ? reason : JSON.stringify(reason);
   log(`Kicked: ${r}`);
-  suspicionLevel++;
-  adaptBehavior();
   stopAllLoops();
   isConnecting = false;
+
+  // Duplicate login — another session is active, wait 60s before reconnecting
+  if (r.toLowerCase().includes("duplicate") || r.toLowerCase().includes("already connected") || r.toLowerCase().includes("logged in from another")) {
+    log("Duplicate login detected. Waiting 60s before reconnect...");
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      createBot();
+    }, 60000);
+    return;
+  }
+
+  suspicionLevel++;
+  adaptBehavior();
   scheduleReconnect("kicked");
 }
 
