@@ -7,7 +7,7 @@ const OpenAI = require("openai");
 const http = require("http");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const HOST = process.env.MC_HOST || "yoriinamanviki.falixsrv.me";
+const HOST = process.env.MC_HOST || "enjoy-char.gl.joinmc.link";
 const MC_PORT = parseInt(process.env.MC_PORT || "25565", 10);
 const BOT_NAME = process.env.BOT_NAME || "God";
 const BASE_X = parseInt(process.env.BASE_X || "2309", 10);
